@@ -45,5 +45,11 @@ public class MergeController {
                 .contentType(MediaType.APPLICATION_PDF)
                 .body(pdf);
     }
+
+    @GetMapping("/health")
+    public String health() {
+        return "OK";
+    }
+
 }
 

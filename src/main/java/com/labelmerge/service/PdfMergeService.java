@@ -15,7 +15,7 @@ public class PdfMergeService {
 
     public byte[] merge(MultipartFile[] files) throws Exception {
 
-        PDRectangle A4 = new PDRectangle(595, 842); // A4 portrait
+        PDRectangle A4 = PDRectangle.A4; // portrait
         int columns = 2;
         int rows = 2;
 
@@ -28,58 +28,65 @@ public class PdfMergeService {
         float cellWidth = usableWidth / columns;
         float cellHeight = usableHeight / rows;
 
-        PDDocument output = new PDDocument();
-        LayerUtility layerUtility = new LayerUtility(output);
+        try (PDDocument output = new PDDocument()) {
 
-        PDPage page = null;
-        PDPageContentStream cs = null;
+            LayerUtility layerUtility = new LayerUtility(output);
 
-        for (int i = 0; i < files.length; i++) {
+            PDPage page = null;
+            PDPageContentStream cs = null;
+            int slot = 0;
 
-            if (i % 4 == 0) {
-                if (cs != null) cs.close();
-                page = new PDPage(A4);
-                output.addPage(page);
-                cs = new PDPageContentStream(output, page);
-                drawCutLines(cs, A4, margin);
+            for (MultipartFile file : files) {
+
+                if (slot % 4 == 0) {
+                    if (cs != null) cs.close();
+
+                    page = new PDPage(A4);
+                    output.addPage(page);
+                    cs = new PDPageContentStream(output, page);
+                    drawCutLines(cs, A4, margin);
+                }
+
+                try (PDDocument src = PDDocument.load(file.getInputStream())) {
+
+                    PDRectangle srcSize = src.getPage(0).getMediaBox();
+                    PDFormXObject form =
+                            layerUtility.importPageAsForm(src, 0);
+
+                    int index = slot % 4;
+                    int row = index / columns;
+                    int col = index % columns;
+
+                    float x = margin + col * (cellWidth + gap);
+                    float y = A4.getHeight()
+                            - margin
+                            - ((row + 1) * cellHeight)
+                            - (row * gap);
+
+                    float scale = Math.min(
+                            cellWidth / srcSize.getWidth(),
+                            cellHeight / srcSize.getHeight()
+                    );
+
+                    cs.saveGraphicsState();
+                    cs.transform(Matrix.getTranslateInstance(x, y));
+                    cs.transform(Matrix.getScaleInstance(scale, scale));
+                    cs.drawForm(form);
+                    cs.restoreGraphicsState();
+                }
+
+                slot++;
             }
 
-            PDDocument src = PDDocument.load(files[i].getInputStream());
-            PDRectangle srcSize = src.getPage(0).getMediaBox();
-            PDFormXObject form = layerUtility.importPageAsForm(src, 0);
+            if (cs != null) cs.close();
 
-            int index = i % 4;
-            int row = index / columns;
-            int col = index % columns;
-
-            float x = margin + col * (cellWidth + gap);
-            float y = A4.getHeight()
-                    - margin
-                    - ((row + 1) * cellHeight)
-                    - (row * gap);
-
-            float scale = Math.min(
-                    cellWidth / srcSize.getWidth(),
-                    cellHeight / srcSize.getHeight()
-            );
-
-            cs.saveGraphicsState();
-            cs.transform(Matrix.getTranslateInstance(x, y));
-            cs.transform(Matrix.getScaleInstance(scale, scale));
-            cs.drawForm(form);
-            cs.restoreGraphicsState();
-
-            src.close();
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            output.save(out);
+            return out.toByteArray();
         }
-
-        if (cs != null) cs.close();
-
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        output.save(out);
-        output.close();
-
-        return out.toByteArray();
     }
+
+
 
     private void drawCutLines(PDPageContentStream cs,
                               PDRectangle page,
